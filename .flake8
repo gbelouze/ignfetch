@@ -1,0 +1,7 @@
+[flake8]
+show-source = True
+builtins = unicode
+# use flake8 only for pydoclint
+select = DOC
+extend-ignore = DOC5
+
