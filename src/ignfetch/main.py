@@ -130,7 +130,7 @@ def url_exists(url: str, timeout: float = 5.0) -> bool:
             return True
         if r.status_code in (403, 404):
             return False
-        if 500 <= r.status_code < 600:
+        if 500 <= r.status_code < 600 or r.status_code == 429:
             raise requests.RequestException(f"Server error {r.status_code}")
         raise ValueError(f"Don't know how to handle status code {r.status_code}.")
 
@@ -179,7 +179,7 @@ def bdortho(
             f"0M20_JP2-E080_LAMB93_D{department}_{year}-01-01/BDORTHO_{version}-0_{color}-"
             f"0M20_JP2-E080_LAMB93_D{department}_{year}-01-01.7z"
         )
-        base_urls = [f"{BDORTHO_BASE_URL}.{str(i).zfill(3)}" for i in range(1, 10)]
+        base_urls = [f"{BDORTHO_BASE_URL}.{str(i).zfill(3)}" for i in range(1, 11)]
 
         if url_exists(base_urls[0]):
             bad_url_idx = bisect(base_urls, url_exists)
@@ -195,7 +195,7 @@ def bdortho(
         if not irc:
             times_gdf = years_bdortho_irc() if irc else years_bdortho_rvb()
             row = times_gdf.loc[times_gdf.code_insee == department]
-            available_years = [year for year in range(2010, 2026) if row[str(year)] == 1]
+            available_years = row.columns[row.eq(1).iloc[0]].tolist()
             log.info(
                 f"Available years for {'IRC' if irc else 'RVB'} {department=} are "
                 f"{available_years}."
