@@ -56,6 +56,8 @@ def download_file(
         Destination path for the downloaded file.
     progress_task : tuple[Progress, TaskID] | None
         Optional progress and task id to update at the end of the download.
+        Expected to be (progress_obj, overall_task_id) where overall_task_id
+        is an overall counter task (e.g., for M of N downloads).
     """
     log.info(f"Downloading {url} to {output_path}")
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -67,18 +69,18 @@ def download_file(
             with requests.get(url, stream=True, timeout=60) as r:
                 r.raise_for_status()
 
-                total = int(r.headers.get("Content-Length", 0)) or None
+                total_bytes = int(r.headers.get("Content-Length", 0))
                 progress, task = None, None
                 if progress_task is not None:
                     progress, _ = progress_task
-                    task = progress.add_task(f"Downloading at ...{url[-20:]}", total=total)
-                    progress.update(task, total=total)
+                    task = progress.add_task(f"Downloading at ...{url[-20:]}", total=total_bytes)
+                    progress.update(task, is_byte=True)
 
                 for chunk in r.iter_content(chunk_size=8192):
                     if chunk:
                         tmp_file.write(chunk)
                         if progress is not None and task is not None:
-                            progress.advance(task, advance=len(chunk))
+                            progress.advance(task, len(chunk))
             tmp_file.flush()
             tmp_file.close()
             shutil.move(str(temp_path), str(output_path))
