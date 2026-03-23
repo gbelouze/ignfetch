@@ -60,6 +60,13 @@ uv run pre-commit run ruff --all-files  # Run specific hook
 
 Note: Never call pip directly. Use `uv run <command>` or `uv run python -m <command>`.
 
+### CRITICAL: Always use `uv run` for Python
+
+- **ALWAYS** use `uv run python -c "..."` to execute Python code snippets, never bare `python3 -c`
+- **ALWAYS** use `uv run` to invoke Python tools (pytest, ruff, mypy, etc.)
+- This ensures the correct virtual environment and dependencies are used
+- Example: `uv run python -c "from rich.progress import Progress; import inspect; print(inspect.signature(Progress.add_task))"`
+
 ## Code Style Guidelines
 
 ### General Principles
