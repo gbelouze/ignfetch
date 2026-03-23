@@ -41,7 +41,7 @@ log = logging.getLogger(__name__)
 def download_file(
     url: str,
     output_path: Path,
-    progress_task: tuple[Progress, TaskID] | None = None,
+    progress_task: tuple[Progress, TaskID | None] | None = None,
 ) -> None:
     """
     Download a file from a URL with streaming and progress logging.
@@ -97,7 +97,8 @@ def download_file(
 
     if progress_task is not None:
         progress, overall_task = progress_task
-        progress.advance(overall_task)
+        if overall_task is not None:
+            progress.advance(overall_task)
 
 
 def extract_7z(archive_path: Path, output_dir: Path) -> None:
@@ -113,11 +114,17 @@ def extract_7z(archive_path: Path, output_dir: Path) -> None:
     """
     log.info(f"Extracting {archive_path}")
     output_dir.mkdir(parents=True, exist_ok=True)
-    with (
-        multivolumefile.open(archive_path, mode="rb") as archive,
-        py7zr.SevenZipFile(archive, mode="r") as z,  # ty:ignore[invalid-argument-type]
-    ):
-        z.extractall(path=output_dir)
+    if archive_path.with_suffix(".001").exists():
+        with (
+            multivolumefile.open(archive_path, mode="rb") as archive,
+            py7zr.SevenZipFile(archive, mode="r") as z,  # ty:ignore[invalid-argument-type]
+        ):
+            z.extractall(path=output_dir)
+    else:
+        with (
+            py7zr.SevenZipFile(archive_path, mode="r") as z,  # ty:ignore[invalid-argument-type]
+        ):
+            z.extractall(path=output_dir)
     log.info(f"Extracted to {output_dir}")
 
 
@@ -332,19 +339,28 @@ def foretv1(output: Path):
     url = "https://data.geopf.fr/telechargement/download/IGNF_MASQUE-FORET/MASQUE-FORET_1-0_2021-2023_GPKG_LAMB93_FXX_2025-09-25/MASQUE-FORET_1-0_2021-2023_GPKG_LAMB93_FXX_2025-09-25.7z"
     output = output.with_suffix(".parquet")
     download_output = output.with_suffix(".7z")
-    download_file(url, download_output)
-    extract_7z(download_output, download_output.parent)
-    log.info(f"Foret V1 data written to {download_output.parent}")
 
-    log.debug("Extracting as parquet")
-    gdf = gpd.read_file(
+    if not download_output.exists():
+        with default_bar() as progress:
+            download_file(url, download_output, (progress, None))
+    else:
+        log.info(f"Found existing {download_output}. Skipping download.")
+
+    masque_path = (
         download_output.parent
         / "MASQUE-FORET"
         / "MASQUE-FORET_1-0_2021-2023_GPKG_LAMB93_FXX_2025-09-25"
         / "masque-foret1.gpkg"
     )
-    df = pd.DataFrame(gdf)
-    df.to_parquet(output, index=False)
+
+    if not masque_path.exists():
+        extract_7z(download_output, download_output.parent)
+        log.info(f"Foret V1 data written to {download_output.parent}")
+    else:
+        log.info(f"Found existing {masque_path}. Skipping .7z decompression.")
+
+    log.debug("Extracting as parquet")
+    gpd.read_file(masque_path).to_parquet(output, index=False)
 
     log.info(f"Parquet written: {output}")
     log.debug("Removing downloaded assets...")
