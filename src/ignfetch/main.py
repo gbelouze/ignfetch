@@ -55,8 +55,7 @@ def download_file(
     output_path : Path
         Destination path for the downloaded file.
     progress_task : tuple[Progress, TaskID] | None
-        Optional progress and task id to update at the end of the download. Uses _progress_lock
-        for thread safety.
+        Optional progress and task id to update at the end of the download.
     """
     log.info(f"Downloading {url} to {output_path}")
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -67,9 +66,19 @@ def download_file(
         try:
             with requests.get(url, stream=True, timeout=60) as r:
                 r.raise_for_status()
+
+                total = int(r.headers.get("Content-Length", 0)) or None
+                progress, task = None, None
+                if progress_task is not None:
+                    progress, _ = progress_task
+                    task = progress.add_task(f"Downloading at ...{url[-20:]}", total=total)
+                    progress.update(task, total=total)
+
                 for chunk in r.iter_content(chunk_size=8192):
                     if chunk:
                         tmp_file.write(chunk)
+                        if progress is not None and task is not None:
+                            progress.advance(task, advance=len(chunk))
             tmp_file.flush()
             tmp_file.close()
             shutil.move(str(temp_path), str(output_path))
@@ -80,9 +89,13 @@ def download_file(
             if temp_path.exists():
                 temp_path.unlink(missing_ok=True)
 
+    if progress is not None and task is not None:
+        progress.update(task, visible=False)
+        progress.remove_task(task)
+
     if progress_task is not None:
-        progress, task = progress_task
-        progress.advance(task)
+        progress, overall_task = progress_task
+        progress.advance(overall_task)
 
 
 def extract_7z(archive_path: Path, output_dir: Path) -> None:
@@ -142,6 +155,7 @@ def bdortho(
     department: str = "017",
     in_parallel: bool = True,
     irc: bool = False,
+    no_decompress: bool = False,
 ) -> None:
     """Download BD-Ortho data
 
@@ -161,7 +175,8 @@ def bdortho(
         Defaults to True.
     irc : bool
         If True, download IRC data. Otherwise download RGB. Defaults to True.
-
+    no_decompress: bool
+        If True, only download .7z parts and don't attempt to decompress them.
     """
     department = department.zfill(3)
     if department not in CODE_INSEE:
@@ -179,6 +194,7 @@ def bdortho(
             f"0M20_JP2-E080_LAMB93_D{department}_{year}-01-01/BDORTHO_{version}-0_{color}-"
             f"0M20_JP2-E080_LAMB93_D{department}_{year}-01-01.7z"
         )
+
         base_urls = [f"{BDORTHO_BASE_URL}.{str(i).zfill(3)}" for i in range(1, 11)]
 
         if url_exists(base_urls[0]):
@@ -207,18 +223,24 @@ def bdortho(
 
     log.info(f"Downloading each of {base_urls}")
 
-    def _download_file(url):
-        filename = Path(url).name
-        dest = output / filename
-        if dest.exists():
-            return
-        download_file(url, dest)
+    with default_bar() as progress:
+        overall_task = progress.add_task("Downloading .7z parts.", total=len(base_urls))
 
-    Parallel(n_jobs=-1 if in_parallel else 1, prefer="threads")(
-        delayed(_download_file)(url) for url in base_urls
-    )
+        def _download_file(url):
+            filename = Path(url).name
+            dest = output / filename
+            if dest.exists():
+                log.info(f"Found part {url[-3:]}. Skipping download.")
+                progress.advance(overall_task)
+                return
+            download_file(url, dest, (progress, overall_task))
 
-    extract_7z(output / Path(BDORTHO_BASE_URL).name, output)
+        Parallel(n_jobs=-1 if in_parallel else 1, prefer="threads")(
+            delayed(_download_file)(url) for url in base_urls
+        )
+
+    if not no_decompress:
+        extract_7z(output / Path(BDORTHO_BASE_URL).name, output)
 
 
 @app.command()
