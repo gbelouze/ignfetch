@@ -62,6 +62,8 @@ def download_file(
     log.info(f"Downloading {url} to {output_path}")
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    progress, task = None, None
+
     # Create temp file in same directory to allow atomic move
     with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
         temp_path = Path(tmp_file.name)
@@ -70,7 +72,6 @@ def download_file(
                 r.raise_for_status()
 
                 total_bytes = int(r.headers.get("Content-Length", 0))
-                progress, task = None, None
                 if progress_task is not None:
                     progress, _ = progress_task
                     task = progress.add_task(f"Downloading at ...{url[-20:]}", total=total_bytes)
